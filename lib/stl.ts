@@ -48,12 +48,19 @@ export function parseBinarySTL(buffer: ArrayBuffer): THREE.BufferGeometry {
   return geometry;
 }
 
+function toArrayBuffer(bytes: Uint8Array): ArrayBuffer {
+  const ab = new ArrayBuffer(bytes.byteLength);
+  const view = new Uint8Array(ab);
+  view.set(bytes);
+  return ab;
+}
+
 export function base64ToGeometry(base64: string): THREE.BufferGeometry {
   const bytes = base64ToUint8Array(base64);
-  return parseBinarySTL(bytes.buffer);
+  return parseBinarySTL(toArrayBuffer(bytes));
 }
 
 export function base64ToBlob(base64: string): Blob {
   const bytes = base64ToUint8Array(base64);
-  return new Blob([bytes], { type: "application/octet-stream" });
+  return new Blob([toArrayBuffer(bytes)], { type: "application/octet-stream" });
 }

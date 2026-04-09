@@ -114,7 +114,7 @@ function Overlay() {
     );
   }
 
-  if (!stlBase64 && status !== "generating") {
+  if (!stlBase64) {
     return (
       <div className="absolute inset-0 flex items-center justify-center z-10 pointer-events-none">
         <div className="flex flex-col items-center gap-3 text-cad-text-muted">
