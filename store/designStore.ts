@@ -57,6 +57,17 @@ export interface ManufacturingAnalysis {
   recommendations: string[];
 }
 
+export interface Generation {
+  id: string;
+  timestamp: number;
+  mode: Mode;
+  params: TPMSParams | LatticeParams;
+  triangles: number;
+  fileSize: number;
+  engine: string;
+  stlBase64: string;
+}
+
 export interface DesignState {
   mode: Mode;
   tpmsParams: TPMSParams;
@@ -69,6 +80,9 @@ export interface DesignState {
   consoleLog: LogEntry[];
   manufacturingAnalysis: ManufacturingAnalysis | null;
   analyzingManufacturing: boolean;
+  generations: Generation[];
+  activeGenerationId: string | null;
+  historyRehydrated: boolean;
 
   setMode: (mode: Mode) => void;
   setTPMSParam: <K extends keyof TPMSParams>(key: K, value: TPMSParams[K]) => void;
@@ -90,6 +104,10 @@ export interface DesignState {
   setManufacturingAnalysis: (analysis: ManufacturingAnalysis | null) => void;
   setAnalyzingManufacturing: (v: boolean) => void;
   analyzeManufacturing: () => Promise<void>;
+  saveGeneration: () => void;
+  loadGeneration: (id: string) => void;
+  deleteGeneration: (id: string) => void;
+  rehydrateHistory: () => void;
 }
 
 const defaultTPMS: TPMSParams = {
@@ -111,6 +129,27 @@ function ts(): string {
   return new Date().toLocaleTimeString("en-US", { hour12: false });
 }
 
+const HISTORY_KEY = "lattiform_generations";
+const MAX_HISTORY = 10;
+
+function persistHistory(generations: Generation[]): void {
+  try {
+    localStorage.setItem(HISTORY_KEY, JSON.stringify(generations));
+  } catch {
+    // storage full or unavailable
+  }
+}
+
+function loadHistory(): Generation[] {
+  try {
+    const raw = localStorage.getItem(HISTORY_KEY);
+    if (!raw) return [];
+    return JSON.parse(raw) as Generation[];
+  } catch {
+    return [];
+  }
+}
+
 export const useDesignStore = create<DesignState>((set, get) => ({
   mode: "tpms",
   tpmsParams: { ...defaultTPMS },
@@ -123,10 +162,13 @@ export const useDesignStore = create<DesignState>((set, get) => ({
   consoleLog: [],
   manufacturingAnalysis: null,
   analyzingManufacturing: false,
+  generations: [],
+  activeGenerationId: null,
+  historyRehydrated: false,
 
   setMode: (mode) => {
     set({ mode });
-    get().log(`Mode switched to ${mode.toUpperCase()}`, "info");
+    get().log("Mode switched to " + mode.toUpperCase(), "info");
   },
 
   setTPMSParam: (key, value) =>
@@ -170,8 +212,9 @@ export const useDesignStore = create<DesignState>((set, get) => ({
       fileSize: null,
       engine: null,
       manufacturingAnalysis: null,
+      activeGenerationId: null,
     });
-    state.log(`Generating ${state.mode.toUpperCase()}...`, "info");
+    state.log("Generating " + state.mode.toUpperCase() + "...", "info");
 
     try {
       const result =
@@ -188,9 +231,14 @@ export const useDesignStore = create<DesignState>((set, get) => ({
           engine: result.engine ?? null,
         });
         get().log(
-          `Generated: ${(result.triangles ?? 0).toLocaleString()} triangles, ${((result.fileSize ?? 0) / 1024 / 1024).toFixed(1)}MB`,
+          "Generated: " +
+            (result.triangles ?? 0).toLocaleString() +
+            " triangles, " +
+            ((result.fileSize ?? 0) / 1024 / 1024).toFixed(1) +
+            "MB",
           "success"
         );
+        get().saveGeneration();
         get().analyzeManufacturing();
       } else {
         set({ status: "error" });
@@ -199,7 +247,7 @@ export const useDesignStore = create<DesignState>((set, get) => ({
     } catch (err) {
       set({ status: "error" });
       const msg = err instanceof Error ? err.message : "Unknown error";
-      get().log(`Generation error: ${msg}`, "error");
+      get().log("Generation error: " + msg, "error");
     }
   },
 
@@ -220,7 +268,7 @@ export const useDesignStore = create<DesignState>((set, get) => ({
       state.mode === "tpms"
         ? state.tpmsParams.surfaceType
         : state.latticeParams.unitCell;
-    a.download = `lattiform_${name}_${Date.now()}.stl`;
+    a.download = "lattiform_" + name + "_" + Date.now() + ".stl";
     document.body.appendChild(a);
     a.click();
     document.body.removeChild(a);
@@ -241,6 +289,7 @@ export const useDesignStore = create<DesignState>((set, get) => ({
       consoleLog: [],
       manufacturingAnalysis: null,
       analyzingManufacturing: false,
+      activeGenerationId: null,
     });
   },
 
@@ -280,7 +329,7 @@ export const useDesignStore = create<DesignState>((set, get) => ({
       });
 
       if (!res.ok) {
-        throw new Error(`HTTP ${res.status}`);
+        throw new Error("HTTP " + res.status);
       }
 
       const data = (await res.json()) as {
@@ -293,7 +342,7 @@ export const useDesignStore = create<DesignState>((set, get) => ({
           analyzingManufacturing: false,
         });
         get().log(
-          `Manufacturability score: ${data.analysis.score}/10`,
+          "Manufacturability score: " + data.analysis.score + "/10",
           data.analysis.score >= 7 ? "success" : "warn"
         );
       } else {
@@ -302,7 +351,72 @@ export const useDesignStore = create<DesignState>((set, get) => ({
     } catch (err) {
       set({ analyzingManufacturing: false });
       const msg = err instanceof Error ? err.message : "Analysis failed";
-      get().log(`Manufacturing analysis error: ${msg}`, "error");
+      get().log("Manufacturing analysis error: " + msg, "error");
     }
+  },
+
+  saveGeneration: () => {
+    const state = get();
+    if (!state.stlBase64 || !state.triangles || !state.fileSize) return;
+
+    const gen: Generation = {
+      id: Date.now().toString(36) + Math.random().toString(36).slice(2, 6),
+      timestamp: Date.now(),
+      mode: state.mode,
+      params:
+        state.mode === "tpms"
+          ? { ...state.tpmsParams }
+          : { ...state.latticeParams },
+      triangles: state.triangles,
+      fileSize: state.fileSize,
+      engine: state.engine || "unknown",
+      stlBase64: state.stlBase64,
+    };
+
+    const updated = [gen, ...state.generations].slice(0, MAX_HISTORY);
+    set({ generations: updated, activeGenerationId: gen.id });
+    persistHistory(updated);
+    get().log("Generation saved to history", "info");
+  },
+
+  loadGeneration: (id) => {
+    const state = get();
+    const gen = state.generations.find((g) => g.id === id);
+    if (!gen) return;
+
+    set({
+      mode: gen.mode,
+      stlBase64: gen.stlBase64,
+      triangles: gen.triangles,
+      fileSize: gen.fileSize,
+      engine: gen.engine,
+      status: "success",
+      activeGenerationId: gen.id,
+      manufacturingAnalysis: null,
+    });
+
+    if (gen.mode === "tpms") {
+      set({ tpmsParams: { ...(gen.params as TPMSParams) } });
+    } else {
+      set({ latticeParams: { ...(gen.params as LatticeParams) } });
+    }
+
+    state.log("Loaded generation from history", "info");
+  },
+
+  deleteGeneration: (id) => {
+    const state = get();
+    const updated = state.generations.filter((g) => g.id !== id);
+    const newActive =
+      state.activeGenerationId === id ? null : state.activeGenerationId;
+    set({ generations: updated, activeGenerationId: newActive });
+    persistHistory(updated);
+    get().log("Generation deleted from history", "info");
+  },
+
+  rehydrateHistory: () => {
+    if (get().historyRehydrated) return;
+    const generations = loadHistory();
+    set({ generations, historyRehydrated: true });
   },
 }));
