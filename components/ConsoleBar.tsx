@@ -1,53 +1,41 @@
 "use client";
 
+import { useRef, useEffect } from "react";
 import { useDesignStore } from "@/store/designStore";
-import { Terminal } from "lucide-react";
-import { useEffect, useRef } from "react";
 
 export default function ConsoleBar() {
-  const entries = useDesignStore((s) => s.console);
+  const entries = useDesignStore((s) => s.consoleLog);
   const scrollRef = useRef<HTMLDivElement>(null);
 
   useEffect(() => {
     if (scrollRef.current) {
-      scrollRef.current.scrollLeft = scrollRef.current.scrollWidth;
+      scrollRef.current.scrollTop = scrollRef.current.scrollHeight;
     }
   }, [entries]);
 
   const last = entries[entries.length - 1];
 
+  const colorMap: Record<string, string> = {
+    info: "text-cad-text-secondary",
+    success: "text-cad-success",
+    error: "text-cad-error",
+    warn: "text-yellow-400",
+  };
+
   return (
-    <div className="h-9 bg-cad-panel border-t border-cad-border flex items-center px-4 gap-3 shrink-0 select-none">
-      <Terminal size={12} className="text-cad-text-muted shrink-0" />
-      <div
-        ref={scrollRef}
-        className="flex-1 overflow-x-auto whitespace-nowrap"
-      >
-        {last ? (
-          <span
-            className={
-              "text-[11px] font-mono " +
-              (last.type === "error"
-                ? "text-cad-error"
-                : last.type === "success"
-                ? "text-cad-success"
-                : last.type === "warn"
-                ? "text-yellow-400"
-                : "text-cad-text-muted")
-            }
-          >
-            <span className="text-cad-text-muted mr-2">[{last.time}]</span>
+    <div className="h-7 min-h-[28px] flex items-center px-3 border-t border-cad-border bg-cad-panel">
+      {last ? (
+        <div className="flex items-center gap-2 text-[11px] font-mono truncate">
+          <span className="text-cad-text-muted">{last.timestamp}</span>
+          <span className={colorMap[last.type] || "text-cad-text-secondary"}>
             {last.message}
           </span>
-        ) : (
-          <span className="text-[11px] font-mono text-cad-text-muted">
-            Ready
-          </span>
-        )}
-      </div>
-      <span className="text-[10px] font-mono text-cad-text-muted shrink-0">
-        {entries.length} logs
-      </span>
+        </div>
+      ) : (
+        <span className="text-[11px] text-cad-text-muted font-mono">
+          Ready
+        </span>
+      )}
     </div>
   );
 }

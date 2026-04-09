@@ -1,7 +1,7 @@
 "use client";
 
 import { useDesignStore, TPMS_TYPES, LATTICE_TYPES, RESOLUTIONS } from "@/store/designStore";
-import type { GeneratorMode } from "@/store/designStore";
+import type { Mode } from "@/store/designStore";
 import GenerateButton from "./GenerateButton";
 import DownloadButton from "./DownloadButton";
 import { Grid3x3, Layers } from "lucide-react";
@@ -105,11 +105,11 @@ export default function ParameterPanel() {
   const axes = ["X", "Y", "Z"] as const;
 
   return (
-    <div className="w-80 bg-cad-panel border-r border-cad-border flex flex-col shrink-0 overflow-y-auto">
-      <div className="p-4 flex-1">
+    <div className="flex flex-col h-full bg-cad-panel">
+      <div className="p-4 flex-1 overflow-y-auto">
         <SectionLabel>Generator</SectionLabel>
         <div className="flex gap-1 mb-4">
-          {(["tpms", "lattice"] as GeneratorMode[]).map((m) => (
+          {(["tpms", "lattice"] as Mode[]).map((m) => (
             <button
               key={m}
               onClick={() => setMode(m)}
@@ -133,9 +133,7 @@ export default function ParameterPanel() {
               label="Type"
               value={tpmsParams.surfaceType}
               options={TPMS_TYPES}
-              onChange={(v) =>
-                setTPMSParam("surfaceType", v as (typeof TPMS_TYPES)[number])
-              }
+              onChange={(v) => setTPMSParam("surfaceType", v)}
             />
 
             <SectionLabel>Dimensions</SectionLabel>
@@ -185,9 +183,7 @@ export default function ParameterPanel() {
               label="Resolution"
               value={tpmsParams.resolution}
               options={RESOLUTIONS}
-              onChange={(v) =>
-                setTPMSParam("resolution", v as (typeof RESOLUTIONS)[number])
-              }
+              onChange={(v) => setTPMSParam("resolution", v)}
             />
 
             {tpmsParams.resolution !== "low" && (
@@ -205,9 +201,7 @@ export default function ParameterPanel() {
               label="Cell"
               value={latticeParams.unitCell}
               options={LATTICE_TYPES}
-              onChange={(v) =>
-                setLatticeParam("unitCell", v as (typeof LATTICE_TYPES)[number])
-              }
+              onChange={(v) => setLatticeParam("unitCell", v)}
             />
 
             <SectionLabel>Dimensions</SectionLabel>
@@ -248,9 +242,7 @@ export default function ParameterPanel() {
               label="Resolution"
               value={latticeParams.resolution}
               options={RESOLUTIONS}
-              onChange={(v) =>
-                setLatticeParam("resolution", v as (typeof RESOLUTIONS)[number])
-              }
+              onChange={(v) => setLatticeParam("resolution", v)}
             />
 
             {latticeParams.resolution !== "low" && (
@@ -261,7 +253,7 @@ export default function ParameterPanel() {
           </>
         )}
 
-        {status === "success" && triangles > 0 && (
+        {status === "success" && triangles !== null && triangles > 0 && (
           <>
             <SectionLabel>Result</SectionLabel>
             <div className="space-y-1.5">
@@ -271,18 +263,22 @@ export default function ParameterPanel() {
                   {triangles.toLocaleString()}
                 </span>
               </div>
-              <div className="flex justify-between text-xs">
-                <span className="text-cad-text-muted">File Size</span>
-                <span className="font-mono text-cad-text">
-                  {(fileSize / (1024 * 1024)).toFixed(1)} MB
-                </span>
-              </div>
-              <div className="flex justify-between text-xs">
-                <span className="text-cad-text-muted">Engine</span>
-                <span className="font-mono text-cad-text text-[10px]">
-                  {engine}
-                </span>
-              </div>
+              {fileSize !== null && (
+                <div className="flex justify-between text-xs">
+                  <span className="text-cad-text-muted">File Size</span>
+                  <span className="font-mono text-cad-text">
+                    {(fileSize / (1024 * 1024)).toFixed(1)} MB
+                  </span>
+                </div>
+              )}
+              {engine && (
+                <div className="flex justify-between text-xs">
+                  <span className="text-cad-text-muted">Engine</span>
+                  <span className="font-mono text-cad-text text-[10px]">
+                    {engine}
+                  </span>
+                </div>
+              )}
             </div>
           </>
         )}

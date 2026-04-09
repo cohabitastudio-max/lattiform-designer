@@ -1,222 +1,236 @@
 "use client";
 
-import { useState, useRef, useEffect } from "react";
+import { useState, useRef, useEffect, useCallback } from "react";
 import { useDesignStore } from "@/store/designStore";
-import { Sparkles, Send, Bot, User } from "lucide-react";
+import { streamChat, extractParams, stripParamsBlock } from "@/lib/chat";
+import type { ChatMessage, ParsedParams } from "@/lib/chat";
 
-interface Message {
-  id: number;
-  role: "user" | "assistant";
-  content: string;
-}
-
-let msgId = 0;
-
-const PRESET_PROMPTS = [
-  "Lightweight drone arm bracket",
-  "Heat exchanger with gyroid infill",
-  "Structural bracket 40x20x15mm",
-  "Diamond lattice for implant",
+const PRESETS = [
+  "I need a cooling plate for a Raspberry Pi, aluminum, 85x56x10mm",
+  "Design a lightweight structural bracket 60x40x30mm for SLS nylon",
+  "Bone scaffold for tibial implant, titanium, 20x20x15mm",
+  "Vibration damping insert for electric motor mount, 50x50x25mm",
+  "Filter element for air purification, 30x30x50mm",
 ];
 
-function parseIntent(text: string): {
-  surfaceType?: string;
-  cellSize?: number;
-  wallThickness?: number;
-  boundingBox?: [number, number, number];
-} | null {
-  const lower = text.toLowerCase();
-  const result: Record<string, unknown> = {};
-  let matched = false;
-
-  const surfaces = ["gyroid", "schwarz_p", "schwarz_d", "diamond", "lidinoid", "neovius"];
-  for (const s of surfaces) {
-    if (lower.includes(s)) {
-      result.surfaceType = s;
-      matched = true;
-      break;
-    }
-  }
-  if (lower.includes("heat exchang") && !result.surfaceType) {
-    result.surfaceType = "gyroid";
-    matched = true;
-  }
-
-  const bbMatch = lower.match(/(\d+)\s*x\s*(\d+)\s*x\s*(\d+)/);
-  if (bbMatch) {
-    result.boundingBox = [
-      parseInt(bbMatch[1]),
-      parseInt(bbMatch[2]),
-      parseInt(bbMatch[3]),
-    ];
-    matched = true;
-  }
-
-  const cellMatch = lower.match(/cell\s*(?:size)?\s*(\d+(?:\.\d+)?)/);
-  if (cellMatch) {
-    result.cellSize = parseFloat(cellMatch[1]);
-    matched = true;
-  }
-
-  const wallMatch = lower.match(/wall\s*(?:thickness)?\s*(\d+(?:\.\d+)?)/);
-  if (wallMatch) {
-    result.wallThickness = parseFloat(wallMatch[1]);
-    matched = true;
-  }
-
-  if (
-    (lower.includes("lightweight") || lower.includes("drone") || lower.includes("bracket")) &&
-    !result.surfaceType
-  ) {
-    result.surfaceType = "gyroid";
-    matched = true;
-  }
-
-  if (lower.includes("implant") && !result.surfaceType) {
-    result.surfaceType = "diamond";
-    matched = true;
-  }
-
-  if (!matched) return null;
-
-  return result as {
-    surfaceType?: string;
-    cellSize?: number;
-    wallThickness?: number;
-    boundingBox?: [number, number, number];
-  };
-}
-
 export default function AIPanel() {
-  const [messages, setMessages] = useState<Message[]>([
-    {
-      id: ++msgId,
-      role: "assistant",
-      content: "Hi! I am the Lattiform AI assistant. Describe the part you need and I will configure the parameters. Try: Gyroid heat exchanger 40x40x20mm",
-    },
-  ]);
+  const [messages, setMessages] = useState<ChatMessage[]>([]);
   const [input, setInput] = useState("");
+  const [streaming, setStreaming] = useState(false);
+  const [pendingParams, setPendingParams] = useState<ParsedParams | null>(null);
+  const [error, setError] = useState<string | null>(null);
   const scrollRef = useRef<HTMLDivElement>(null);
-  const { setTPMSParam, setMode, generate, log } = useDesignStore();
+  const inputRef = useRef<HTMLTextAreaElement>(null);
+
+  const applyParams = useDesignStore((s) => s.applyParams);
+  const generate = useDesignStore((s) => s.generate);
+  const log = useDesignStore((s) => s.log);
+  const status = useDesignStore((s) => s.status);
+
+  const scrollToBottom = useCallback(() => {
+    if (scrollRef.current) {
+      scrollRef.current.scrollTop = scrollRef.current.scrollHeight;
+    }
+  }, []);
 
   useEffect(() => {
-    if (scrollRef.current) {
-      scrollRef.current.scrollTo(0, scrollRef.current.scrollHeight);
+    scrollToBottom();
+  }, [messages, scrollToBottom]);
+
+  const sendMessage = useCallback(
+    async (text: string) => {
+      if (!text.trim() || streaming) return;
+
+      const userMsg: ChatMessage = { role: "user", content: text.trim() };
+      const newMessages = [...messages, userMsg];
+      setMessages(newMessages);
+      setInput("");
+      setError(null);
+      setPendingParams(null);
+      setStreaming(true);
+
+      let assistantContent = "";
+
+      setMessages((prev) => [...prev, { role: "assistant", content: "" }]);
+
+      await streamChat(
+        newMessages,
+        (token) => {
+          assistantContent += token;
+          setMessages((prev) => {
+            const updated = [...prev];
+            updated[updated.length - 1] = {
+              role: "assistant",
+              content: assistantContent,
+            };
+            return updated;
+          });
+        },
+        () => {
+          setStreaming(false);
+          const params = extractParams(assistantContent);
+          if (params) {
+            setPendingParams(params);
+            applyParams(params);
+            log("AI parameters auto-applied to panel", "info");
+          }
+        },
+        (err) => {
+          setStreaming(false);
+          setError(err);
+          log("AI error: " + err, "error");
+        }
+      );
+    },
+    [messages, streaming, applyParams, log]
+  );
+
+  const handleApplyAndGenerate = useCallback(() => {
+    if (pendingParams) {
+      applyParams(pendingParams);
+      setPendingParams(null);
+      generate();
     }
-  }, [messages]);
+  }, [pendingParams, applyParams, generate]);
 
-  function handleSend(text?: string) {
-    const msg = (text ?? input).trim();
-    if (!msg) return;
-    setInput("");
-
-    const userMsg: Message = { id: ++msgId, role: "user", content: msg };
-    setMessages((prev) => [...prev, userMsg]);
-
-    const intent = parseIntent(msg);
-    let reply: string;
-
-    if (intent) {
-      setMode("tpms");
-
-      if (intent.surfaceType) {
-        setTPMSParam("surfaceType", intent.surfaceType as "gyroid");
-      }
-      if (intent.cellSize) {
-        setTPMSParam("cellSize", intent.cellSize);
-      }
-      if (intent.wallThickness) {
-        setTPMSParam("wallThickness", intent.wallThickness);
-      }
-      if (intent.boundingBox) {
-        setTPMSParam("boundingBox", intent.boundingBox);
-      }
-
-      const parts: string[] = [];
-      if (intent.surfaceType) parts.push("surface: " + intent.surfaceType);
-      if (intent.cellSize) parts.push("cell size: " + intent.cellSize + "mm");
-      if (intent.wallThickness) parts.push("wall: " + intent.wallThickness + "mm");
-      if (intent.boundingBox) parts.push("box: [" + intent.boundingBox.join(",") + "]mm");
-
-      reply = "Parameters updated:\n" + parts.join("\n") + "\n\nClick Generate or say generate to proceed.";
-      log("AI set params: " + parts.join(", "), "info");
-    } else if (msg.toLowerCase().includes("generate")) {
-      reply = "Starting generation...";
-      setTimeout(() => {
-        generate();
-      }, 300);
-    } else {
-      reply = "I can help configure TPMS and lattice parameters. Try describing your part:\n- Gyroid 40x40x20mm cell 6\n- Diamond lattice for bracket\n- Heat exchanger wall 0.8mm";
+  const handleKeyDown = (e: React.KeyboardEvent<HTMLTextAreaElement>) => {
+    if (e.key === "Enter" && !e.shiftKey) {
+      e.preventDefault();
+      sendMessage(input);
     }
+  };
 
-    const assistantMsg: Message = {
-      id: ++msgId,
-      role: "assistant",
-      content: reply,
-    };
-
-    setTimeout(() => {
-      setMessages((prev) => [...prev, assistantMsg]);
-    }, 400);
-  }
+  const formatMessage = (content: string): string => {
+    return stripParamsBlock(content);
+  };
 
   return (
-    <div className="w-[360px] bg-cad-panel border-l border-cad-border flex flex-col shrink-0">
-      <div className="h-10 flex items-center gap-2 px-4 border-b border-cad-border shrink-0">
-        <Sparkles size={14} className="text-cad-accent" />
-        <span className="text-xs font-semibold text-cad-text">AI Assistant</span>
-        <span className="text-[10px] font-mono text-cad-text-muted ml-auto">LOCAL</span>
+    <div className="flex flex-col h-full bg-cad-panel">
+      <div className="flex items-center justify-between px-3 py-2 border-b border-cad-border">
+        <div className="flex items-center gap-2">
+          <div className="w-2 h-2 rounded-full bg-cad-accent animate-pulse" />
+          <span className="text-xs font-semibold text-cad-text tracking-wide uppercase">
+            Design Agent
+          </span>
+        </div>
+        {messages.length > 0 && (
+          <button
+            onClick={() => {
+              setMessages([]);
+              setPendingParams(null);
+              setError(null);
+            }}
+            className="text-[10px] text-cad-text-muted hover:text-cad-text transition-colors"
+          >
+            Clear
+          </button>
+        )}
       </div>
 
       <div ref={scrollRef} className="flex-1 overflow-y-auto p-3 space-y-3">
-        {messages.map((m) => (
-          <div key={m.id} className="flex gap-2">
-            <div className="shrink-0 mt-0.5">
-              {m.role === "assistant" ? (
-                <Bot size={16} className="text-cad-accent" />
-              ) : (
-                <User size={16} className="text-cad-text-muted" />
-              )}
+        {messages.length === 0 && (
+          <div className="space-y-2">
+            <p className="text-xs text-cad-text-secondary mb-3">
+              Describe the part you need. The AI will recommend optimal
+              TPMS/lattice parameters for your application.
+            </p>
+            <div className="space-y-1.5">
+              {PRESETS.map((preset, i) => (
+                <button
+                  key={i}
+                  onClick={() => sendMessage(preset)}
+                  disabled={streaming}
+                  className="block w-full text-left text-[11px] text-cad-text-secondary hover:text-cad-text bg-cad-input hover:bg-cad-border rounded px-2.5 py-2 transition-colors disabled:opacity-50"
+                >
+                  {preset}
+                </button>
+              ))}
             </div>
+          </div>
+        )}
+
+        {messages.map((msg, i) => (
+          <div
+            key={i}
+            className={
+              "flex " + (msg.role === "user" ? "justify-end" : "justify-start")
+            }
+          >
             <div
               className={
-                "text-xs leading-relaxed whitespace-pre-wrap " +
-                (m.role === "assistant" ? "text-cad-text-secondary" : "text-cad-text")
+                "max-w-[90%] rounded-lg px-3 py-2 text-xs leading-relaxed " +
+                (msg.role === "user"
+                  ? "bg-cad-accent/20 text-cad-text"
+                  : "bg-cad-input text-cad-text-secondary")
               }
             >
-              {m.content}
+              <pre className="whitespace-pre-wrap font-sans">
+                {msg.role === "assistant"
+                  ? formatMessage(msg.content)
+                  : msg.content}
+              </pre>
+              {msg.role === "assistant" &&
+                streaming &&
+                i === messages.length - 1 && (
+                  <span className="inline-block w-1.5 h-3 bg-cad-accent animate-pulse ml-0.5" />
+                )}
             </div>
           </div>
         ))}
+
+        {error && (
+          <div className="bg-cad-error/10 border border-cad-error/30 rounded px-3 py-2">
+            <p className="text-[11px] text-cad-error">{error}</p>
+            <button
+              onClick={() => {
+                setError(null);
+                const lastUser = messages.filter((m) => m.role === "user").pop();
+                if (lastUser) {
+                  setMessages((prev) => prev.slice(0, -1));
+                  sendMessage(lastUser.content);
+                }
+              }}
+              className="text-[10px] text-cad-error hover:text-cad-error/80 underline mt-1"
+            >
+              Retry
+            </button>
+          </div>
+        )}
+
+        {pendingParams && !streaming && (
+          <div className="flex flex-col gap-1.5 p-2 bg-cad-accent/10 border border-cad-accent/30 rounded">
+            <p className="text-[10px] text-cad-accent">
+              Parameters applied to panel
+            </p>
+            <button
+              onClick={handleApplyAndGenerate}
+              disabled={status === "generating"}
+              className="w-full py-1.5 bg-cad-accent hover:bg-cad-accent-hover text-white text-xs font-medium rounded transition-colors disabled:opacity-50"
+            >
+              {status === "generating" ? "Generating..." : "Generate STL"}
+            </button>
+          </div>
+        )}
       </div>
 
-      <div className="px-3 pb-2 flex flex-wrap gap-1.5">
-        {PRESET_PROMPTS.map((p) => (
-          <button
-            key={p}
-            onClick={() => handleSend(p)}
-            className="text-[10px] font-mono bg-cad-input border border-cad-border rounded-full px-2.5 py-1 text-cad-text-muted hover:text-cad-text hover:border-cad-accent transition-colors"
-          >
-            {p}
-          </button>
-        ))}
-      </div>
-
-      <div className="p-3 border-t border-cad-border">
+      <div className="p-2 border-t border-cad-border">
         <div className="flex gap-2">
-          <input
-            type="text"
+          <textarea
+            ref={inputRef}
             value={input}
             onChange={(e) => setInput(e.target.value)}
-            onKeyDown={(e) => { if (e.key === "Enter") handleSend(); }}
-            placeholder="Describe your part..."
-            className="flex-1 bg-cad-input border border-cad-border rounded px-3 py-2 text-xs text-cad-text placeholder:text-cad-text-muted font-mono focus:outline-none focus:border-cad-accent transition-colors"
+            onKeyDown={handleKeyDown}
+            placeholder="Describe your part requirement..."
+            disabled={streaming}
+            rows={1}
+            className="flex-1 bg-cad-input border border-cad-border rounded px-2.5 py-2 text-xs text-cad-text placeholder:text-cad-text-muted resize-none focus:outline-none focus:border-cad-accent disabled:opacity-50"
           />
           <button
-            onClick={() => handleSend()}
-            className="bg-cad-accent hover:bg-cad-accent-hover text-white rounded px-3 py-2 transition-colors"
+            onClick={() => sendMessage(input)}
+            disabled={!input.trim() || streaming}
+            className="px-3 bg-cad-accent hover:bg-cad-accent-hover text-white text-xs font-medium rounded transition-colors disabled:opacity-50 disabled:cursor-not-allowed"
           >
-            <Send size={14} />
+            {streaming ? "..." : "\u2192"}
           </button>
         </div>
       </div>

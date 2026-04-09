@@ -1,21 +1,9 @@
 import { create } from "zustand";
-import {
-  generateTPMS,
-  generateLattice,
-  type TPMSRequest,
-  type LatticeRequest,
-} from "@/lib/api";
-import { base64ToBlob } from "@/lib/stl";
+import { generateTPMS, generateLattice } from "@/lib/api";
 
-export type GeneratorMode = "tpms" | "lattice";
+export type Mode = "tpms" | "lattice";
 export type Status = "idle" | "generating" | "success" | "error";
-
-export interface ConsoleEntry {
-  id: number;
-  time: string;
-  message: string;
-  type: "info" | "success" | "error" | "warn";
-}
+export type LogType = "info" | "success" | "error" | "warn";
 
 export const TPMS_TYPES = [
   "gyroid",
@@ -37,156 +25,284 @@ export const LATTICE_TYPES = [
 export const RESOLUTIONS = ["low", "medium", "high"] as const;
 
 export interface TPMSParams {
-  surfaceType: (typeof TPMS_TYPES)[number];
+  surfaceType: string;
   cellSize: number;
   wallThickness: number;
   boundingBox: [number, number, number];
-  resolution: (typeof RESOLUTIONS)[number];
+  resolution: string;
 }
 
 export interface LatticeParams {
-  unitCell: (typeof LATTICE_TYPES)[number];
+  unitCell: string;
   strutDiameter: number;
   boundingBox: [number, number, number];
-  resolution: (typeof RESOLUTIONS)[number];
+  resolution: string;
 }
 
-interface DesignState {
-  mode: GeneratorMode;
+export interface LogEntry {
+  timestamp: string;
+  message: string;
+  type: LogType;
+}
+
+export interface ManufacturingAnalysis {
+  material: string;
+  process: string;
+  orientation: string;
+  wallCheck: { pass: boolean; min: number; actual: number };
+  printTime: string;
+  costRange: string;
+  score: number;
+  warnings: string[];
+  recommendations: string[];
+}
+
+export interface DesignState {
+  mode: Mode;
   tpmsParams: TPMSParams;
   latticeParams: LatticeParams;
   stlBase64: string | null;
-  triangles: number;
-  fileSize: number;
-  engine: string;
+  triangles: number | null;
+  fileSize: number | null;
+  engine: string | null;
   status: Status;
-  console: ConsoleEntry[];
-  setMode: (m: GeneratorMode) => void;
-  setTPMSParam: <K extends keyof TPMSParams>(key: K, val: TPMSParams[K]) => void;
-  setLatticeParam: <K extends keyof LatticeParams>(key: K, val: LatticeParams[K]) => void;
+  consoleLog: LogEntry[];
+  manufacturingAnalysis: ManufacturingAnalysis | null;
+  analyzingManufacturing: boolean;
+
+  setMode: (mode: Mode) => void;
+  setTPMSParam: <K extends keyof TPMSParams>(key: K, value: TPMSParams[K]) => void;
+  setLatticeParam: <K extends keyof LatticeParams>(key: K, value: LatticeParams[K]) => void;
+  applyParams: (params: {
+    mode?: Mode;
+    surfaceType?: string;
+    unitCell?: string;
+    cellSize?: number;
+    wallThickness?: number;
+    strutDiameter?: number;
+    boundingBox?: [number, number, number];
+    resolution?: string;
+  }) => void;
   generate: () => Promise<void>;
   downloadSTL: () => void;
   reset: () => void;
-  log: (message: string, type?: ConsoleEntry["type"]) => void;
+  log: (message: string, type?: LogType) => void;
+  setManufacturingAnalysis: (analysis: ManufacturingAnalysis | null) => void;
+  setAnalyzingManufacturing: (v: boolean) => void;
+  analyzeManufacturing: () => Promise<void>;
 }
 
-let consoleId = 0;
+const defaultTPMS: TPMSParams = {
+  surfaceType: "gyroid",
+  cellSize: 5,
+  wallThickness: 0.8,
+  boundingBox: [40, 40, 40],
+  resolution: "low",
+};
 
-function timestamp(): string {
+const defaultLattice: LatticeParams = {
+  unitCell: "octet",
+  strutDiameter: 1.0,
+  boundingBox: [40, 40, 40],
+  resolution: "low",
+};
+
+function ts(): string {
   return new Date().toLocaleTimeString("en-US", { hour12: false });
 }
 
 export const useDesignStore = create<DesignState>((set, get) => ({
   mode: "tpms",
-
-  tpmsParams: {
-    surfaceType: "gyroid",
-    cellSize: 8,
-    wallThickness: 1.2,
-    boundingBox: [30, 30, 30],
-    resolution: "low",
-  },
-
-  latticeParams: {
-    unitCell: "octet",
-    strutDiameter: 1.0,
-    boundingBox: [30, 30, 30],
-    resolution: "low",
-  },
-
+  tpmsParams: { ...defaultTPMS },
+  latticeParams: { ...defaultLattice },
   stlBase64: null,
-  triangles: 0,
-  fileSize: 0,
-  engine: "",
+  triangles: null,
+  fileSize: null,
+  engine: null,
   status: "idle",
-  console: [],
+  consoleLog: [],
+  manufacturingAnalysis: null,
+  analyzingManufacturing: false,
 
-  setMode: (m) => set({ mode: m }),
+  setMode: (mode) => {
+    set({ mode });
+    get().log(`Mode switched to ${mode.toUpperCase()}`, "info");
+  },
 
-  setTPMSParam: (key, val) =>
-    set((s) => ({ tpmsParams: { ...s.tpmsParams, [key]: val } })),
+  setTPMSParam: (key, value) =>
+    set((s) => ({ tpmsParams: { ...s.tpmsParams, [key]: value } })),
 
-  setLatticeParam: (key, val) =>
-    set((s) => ({ latticeParams: { ...s.latticeParams, [key]: val } })),
+  setLatticeParam: (key, value) =>
+    set((s) => ({ latticeParams: { ...s.latticeParams, [key]: value } })),
+
+  applyParams: (params) => {
+    const state = get();
+    if (params.mode) {
+      set({ mode: params.mode });
+    }
+    const mode = params.mode || state.mode;
+
+    if (mode === "tpms") {
+      const update: Partial<TPMSParams> = {};
+      if (params.surfaceType) update.surfaceType = params.surfaceType;
+      if (params.cellSize !== undefined) update.cellSize = params.cellSize;
+      if (params.wallThickness !== undefined) update.wallThickness = params.wallThickness;
+      if (params.boundingBox) update.boundingBox = params.boundingBox;
+      if (params.resolution) update.resolution = params.resolution;
+      set((s) => ({ tpmsParams: { ...s.tpmsParams, ...update } }));
+    } else {
+      const update: Partial<LatticeParams> = {};
+      if (params.unitCell) update.unitCell = params.unitCell;
+      if (params.strutDiameter !== undefined) update.strutDiameter = params.strutDiameter;
+      if (params.boundingBox) update.boundingBox = params.boundingBox;
+      if (params.resolution) update.resolution = params.resolution;
+      set((s) => ({ latticeParams: { ...s.latticeParams, ...update } }));
+    }
+    state.log("Parameters applied from AI recommendation", "info");
+  },
 
   generate: async () => {
     const state = get();
-    const logFn = state.log;
-
-    set({ status: "generating", stlBase64: null, triangles: 0, fileSize: 0, engine: "" });
-    logFn("Starting generation...", "info");
+    set({
+      status: "generating",
+      stlBase64: null,
+      triangles: null,
+      fileSize: null,
+      engine: null,
+      manufacturingAnalysis: null,
+    });
+    state.log(`Generating ${state.mode.toUpperCase()}...`, "info");
 
     try {
-      const start = performance.now();
-      let response;
+      const result =
+        state.mode === "tpms"
+          ? await generateTPMS(state.tpmsParams)
+          : await generateLattice(state.latticeParams);
 
-      if (state.mode === "tpms") {
-        const p = state.tpmsParams;
-        logFn(
-          "TPMS: " + p.surfaceType + " | cell " + p.cellSize + "mm | wall " + p.wallThickness + "mm | box [" + p.boundingBox + "] | " + p.resolution,
-          "info"
+      if (result.success && result.stlBase64) {
+        set({
+          status: "success",
+          stlBase64: result.stlBase64,
+          triangles: result.triangles ?? null,
+          fileSize: result.fileSize ?? null,
+          engine: result.engine ?? null,
+        });
+        get().log(
+          `Generated: ${(result.triangles ?? 0).toLocaleString()} triangles, ${((result.fileSize ?? 0) / 1024 / 1024).toFixed(1)}MB`,
+          "success"
         );
-        response = await generateTPMS(p as TPMSRequest);
+        get().analyzeManufacturing();
       } else {
-        const p = state.latticeParams;
-        logFn(
-          "Lattice: " + p.unitCell + " | strut " + p.strutDiameter + "mm | box [" + p.boundingBox + "] | " + p.resolution,
-          "info"
-        );
-        response = await generateLattice(p as LatticeRequest);
+        set({ status: "error" });
+        get().log("Generation failed: no STL returned", "error");
       }
-
-      const elapsed = ((performance.now() - start) / 1000).toFixed(1);
-      const sizeMB = (response.fileSize / (1024 * 1024)).toFixed(1);
-
-      set({
-        status: "success",
-        stlBase64: response.stlBase64,
-        triangles: response.triangles,
-        fileSize: response.fileSize,
-        engine: response.engine,
-      });
-
-      logFn(
-        "Generated " + response.triangles.toLocaleString() + " triangles | " + sizeMB + "MB | " + elapsed + "s | " + response.engine,
-        "success"
-      );
-    } catch (err: unknown) {
-      const message = err instanceof Error ? err.message : "Unknown error";
+    } catch (err) {
       set({ status: "error" });
-      logFn("Error: " + message, "error");
+      const msg = err instanceof Error ? err.message : "Unknown error";
+      get().log(`Generation error: ${msg}`, "error");
     }
   },
 
   downloadSTL: () => {
-    const { stlBase64, mode, tpmsParams, latticeParams } = get();
-    if (!stlBase64) return;
+    const state = get();
+    if (!state.stlBase64) return;
 
-    const blob = base64ToBlob(stlBase64);
+    const byteChars = atob(state.stlBase64);
+    const bytes = new Uint8Array(byteChars.length);
+    for (let i = 0; i < byteChars.length; i++) {
+      bytes[i] = byteChars.charCodeAt(i);
+    }
+    const blob = new Blob([bytes], { type: "application/octet-stream" });
     const url = URL.createObjectURL(blob);
     const a = document.createElement("a");
-    const name = mode === "tpms" ? tpmsParams.surfaceType : latticeParams.unitCell;
     a.href = url;
-    a.download = "lattiform-" + name + "-" + Date.now() + ".stl";
+    const name =
+      state.mode === "tpms"
+        ? state.tpmsParams.surfaceType
+        : state.latticeParams.unitCell;
+    a.download = `lattiform_${name}_${Date.now()}.stl`;
+    document.body.appendChild(a);
     a.click();
+    document.body.removeChild(a);
     URL.revokeObjectURL(url);
-    get().log("STL downloaded", "info");
+    state.log("STL downloaded", "success");
   },
 
-  reset: () =>
+  reset: () => {
     set({
+      mode: "tpms",
+      tpmsParams: { ...defaultTPMS },
+      latticeParams: { ...defaultLattice },
       stlBase64: null,
-      triangles: 0,
-      fileSize: 0,
-      engine: "",
+      triangles: null,
+      fileSize: null,
+      engine: null,
       status: "idle",
-    }),
+      consoleLog: [],
+      manufacturingAnalysis: null,
+      analyzingManufacturing: false,
+    });
+  },
 
   log: (message, type = "info") =>
     set((s) => ({
-      console: [
-        ...s.console.slice(-199),
-        { id: ++consoleId, time: timestamp(), message, type },
+      consoleLog: [
+        ...s.consoleLog.slice(-99),
+        { timestamp: ts(), message, type },
       ],
     })),
+
+  setManufacturingAnalysis: (analysis) =>
+    set({ manufacturingAnalysis: analysis }),
+
+  setAnalyzingManufacturing: (v) =>
+    set({ analyzingManufacturing: v }),
+
+  analyzeManufacturing: async () => {
+    const state = get();
+    if (!state.triangles) return;
+
+    set({ analyzingManufacturing: true, manufacturingAnalysis: null });
+    state.log("Analyzing manufacturability...", "info");
+
+    try {
+      const params =
+        state.mode === "tpms" ? state.tpmsParams : state.latticeParams;
+      const res = await fetch("/api/analyze", {
+        method: "POST",
+        headers: { "Content-Type": "application/json" },
+        body: JSON.stringify({
+          mode: state.mode,
+          params,
+          triangles: state.triangles,
+          fileSize: state.fileSize,
+        }),
+      });
+
+      if (!res.ok) {
+        throw new Error(`HTTP ${res.status}`);
+      }
+
+      const data = (await res.json()) as {
+        analysis?: ManufacturingAnalysis;
+        error?: string;
+      };
+      if (data.analysis) {
+        set({
+          manufacturingAnalysis: data.analysis,
+          analyzingManufacturing: false,
+        });
+        get().log(
+          `Manufacturability score: ${data.analysis.score}/10`,
+          data.analysis.score >= 7 ? "success" : "warn"
+        );
+      } else {
+        throw new Error(data.error || "No analysis returned");
+      }
+    } catch (err) {
+      set({ analyzingManufacturing: false });
+      const msg = err instanceof Error ? err.message : "Analysis failed";
+      get().log(`Manufacturing analysis error: ${msg}`, "error");
+    }
+  },
 }));
