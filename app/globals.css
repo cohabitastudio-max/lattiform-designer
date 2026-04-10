@@ -2,41 +2,204 @@
 @tailwind components;
 @tailwind utilities;
 
-@import url('https://fonts.googleapis.com/css2?family=Inter:wght@300;400;500;600;700&family=JetBrains+Mono:wght@400;500&display=swap');
+@import url('https://fonts.googleapis.com/css2?family=Inter:wght@300;400;500;600;700;800&family=JetBrains+Mono:wght@400;500;600&display=swap');
 
-* {
-  margin: 0;
-  padding: 0;
-  box-sizing: border-box;
+@layer base {
+  * {
+    margin: 0;
+    padding: 0;
+    box-sizing: border-box;
+  }
+
+  html, body {
+    height: 100%;
+    overflow: hidden;
+    background: #06080c;
+    color: #f1f5f9;
+    font-family: 'Inter', system-ui, sans-serif;
+    -webkit-font-smoothing: antialiased;
+    -moz-osx-font-smoothing: grayscale;
+  }
+
+  ::selection {
+    background: rgba(99, 102, 241, 0.3);
+    color: #f1f5f9;
+  }
+
+  ::-webkit-scrollbar {
+    width: 5px;
+    height: 5px;
+  }
+
+  ::-webkit-scrollbar-track {
+    background: transparent;
+  }
+
+  ::-webkit-scrollbar-thumb {
+    background: #334155;
+    border-radius: 9999px;
+  }
+
+  ::-webkit-scrollbar-thumb:hover {
+    background: #475569;
+  }
+
+  ::-webkit-scrollbar-corner {
+    background: transparent;
+  }
+
+  input[type="number"]::-webkit-inner-spin-button,
+  input[type="number"]::-webkit-outer-spin-button {
+    -webkit-appearance: none;
+    margin: 0;
+  }
+  input[type="number"] {
+    -moz-appearance: textfield;
+  }
 }
 
-html,
-body {
-  height: 100%;
-  overflow: hidden;
-  background: #0b0f14;
-  color: #f1f5f9;
-  font-family: 'Inter', system-ui, sans-serif;
+@layer components {
+  .panel-base {
+    @apply bg-cad-panel border-cad-border;
+    box-shadow: inset 0 1px 0 0 rgba(255,255,255,0.02);
+  }
+
+  .surface-base {
+    @apply bg-cad-surface border border-cad-border rounded-lg;
+    box-shadow: inset 0 1px 0 0 rgba(255,255,255,0.03);
+  }
+
+  .input-base {
+    @apply bg-cad-input border border-cad-border rounded-md px-3 py-2
+           text-sm text-cad-text font-mono
+           focus:outline-none focus:border-cad-accent focus:ring-1 focus:ring-cad-accent/20
+           transition-all duration-150 placeholder:text-cad-text-dim;
+  }
+
+  .btn-primary {
+    @apply flex items-center justify-center gap-2
+           bg-cad-accent hover:bg-cad-accent-hover
+           text-white font-medium text-sm
+           px-4 py-2.5 rounded-lg
+           transition-all duration-150
+           shadow-glow-sm hover:shadow-glow-md
+           active:scale-[0.98]
+           disabled:opacity-40 disabled:cursor-not-allowed disabled:shadow-none disabled:active:scale-100;
+  }
+
+  .btn-secondary {
+    @apply flex items-center justify-center gap-2
+           bg-cad-surface hover:bg-cad-input
+           text-cad-text-secondary hover:text-cad-text
+           font-medium text-sm
+           px-4 py-2.5 rounded-lg
+           border border-cad-border hover:border-cad-border-hover
+           transition-all duration-150
+           active:scale-[0.98]
+           disabled:opacity-30 disabled:cursor-not-allowed disabled:active:scale-100;
+  }
+
+  .btn-ghost {
+    @apply flex items-center justify-center gap-1.5
+           text-cad-text-muted hover:text-cad-text
+           hover:bg-cad-surface
+           text-sm px-3 py-2 rounded-md
+           transition-all duration-150
+           active:scale-[0.97];
+  }
+
+  .tab-btn {
+    @apply relative flex-1 flex items-center justify-center gap-1.5
+           py-3 text-xs font-medium tracking-wide uppercase
+           transition-all duration-200;
+  }
+
+  .tab-btn-active {
+    @apply text-cad-accent;
+  }
+
+  .tab-btn-inactive {
+    @apply text-cad-text-muted hover:text-cad-text-secondary;
+  }
+
+  .section-label {
+    @apply text-2xs font-semibold font-mono uppercase tracking-[0.15em]
+           text-cad-text-dim mt-5 mb-2.5 flex items-center gap-2;
+  }
+
+  .section-label::after {
+    content: '';
+    @apply flex-1 h-px bg-cad-border;
+  }
+
+  .card-base {
+    @apply bg-cad-surface/50 border border-cad-border rounded-lg p-3
+           transition-all duration-150;
+    box-shadow: inset 0 1px 0 0 rgba(255,255,255,0.02);
+  }
+
+  .card-interactive {
+    @apply card-base cursor-pointer
+           hover:border-cad-border-hover hover:bg-cad-surface;
+  }
+
+  .badge {
+    @apply inline-flex items-center gap-1 text-2xs font-mono font-medium
+           px-2 py-1 rounded-md;
+  }
+
+  .badge-accent {
+    @apply badge bg-cad-accent-muted text-cad-accent border border-cad-accent/20;
+  }
+
+  .badge-success {
+    @apply badge bg-cad-success-muted text-cad-success border border-cad-success/20;
+  }
+
+  .badge-error {
+    @apply badge bg-cad-error-muted text-cad-error border border-cad-error/20;
+  }
+
+  .badge-warning {
+    @apply badge bg-cad-warning-muted text-cad-warning border border-cad-warning/20;
+  }
+
+  .badge-neutral {
+    @apply badge bg-cad-input text-cad-text-muted border border-cad-border;
+  }
+
+  .hud-overlay {
+    @apply bg-cad-primary/85 backdrop-blur-md border border-cad-border/60
+           rounded-lg shadow-elevation-2;
+  }
+
+  .divider {
+    @apply h-px bg-gradient-to-r from-transparent via-cad-border to-transparent;
+  }
+
+  .status-dot {
+    @apply w-2 h-2 rounded-full;
+  }
+
+  .status-dot-online {
+    @apply status-dot bg-cad-success shadow-[0_0_6px_rgba(16,185,129,0.4)];
+  }
+
+  .status-dot-offline {
+    @apply status-dot bg-cad-error shadow-[0_0_6px_rgba(239,68,68,0.4)];
+  }
 }
 
-::-webkit-scrollbar {
-  width: 6px;
-}
+@layer utilities {
+  .text-gradient {
+    @apply bg-clip-text text-transparent bg-gradient-to-r from-cad-accent to-cad-secondary;
+  }
 
-::-webkit-scrollbar-track {
-  background: #111827;
-}
+  .border-glow {
+    box-shadow: 0 0 0 1px rgba(99, 102, 241, 0.3), 0 0 12px 0 rgba(99, 102, 241, 0.1);
+  }
 
-::-webkit-scrollbar-thumb {
-  background: #334155;
-  border-radius: 3px;
-}
-
-::-webkit-scrollbar-thumb:hover {
-  background: #475569;
-}
-
-input[type="number"]::-webkit-inner-spin-button,
-input[type="number"]::-webkit-outer-spin-button {
-  opacity: 1;
+  .noise-overlay {
+    background-image: url("data:image/svg+xml,%3Csvg viewBox='0 0 256 256' xmlns='http://www.w3.org/2000/svg'%3E%3Cfilter id='n'%3E%3CfeTurbulence type='fractalNoise' baseFrequency='0.9' numOctaves='4' stitchTiles='stitch'/%3E%3C/filter%3E%3Crect width='256' height='256' filter='url(%23n)' opacity='0.03'/%3E%3C/svg%3E");
+  }
 }

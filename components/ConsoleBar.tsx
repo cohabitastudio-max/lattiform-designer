@@ -2,6 +2,7 @@
 
 import { useRef, useEffect } from "react";
 import { useDesignStore } from "@/store/designStore";
+import { Terminal } from "lucide-react";
 
 export default function ConsoleBar() {
   const entries = useDesignStore((s) => s.consoleLog);
@@ -19,23 +20,30 @@ export default function ConsoleBar() {
     info: "text-cad-text-secondary",
     success: "text-cad-success",
     error: "text-cad-error",
-    warn: "text-yellow-400",
+    warn: "text-cad-warning",
   };
 
   return (
-    <div className="h-7 min-h-[28px] flex items-center px-3 border-t border-cad-border bg-cad-panel">
+    <div
+      ref={scrollRef}
+      className="h-8 min-h-[32px] flex items-center px-4 border-t border-cad-border bg-cad-panel gap-2"
+    >
+      <Terminal size={10} className="text-cad-text-dim shrink-0" />
       {last ? (
-        <div className="flex items-center gap-2 text-[11px] font-mono truncate">
-          <span className="text-cad-text-muted">{last.timestamp}</span>
+        <div className="flex items-center gap-2 text-2xs font-mono truncate animate-fade-in">
+          <span className="text-cad-text-dim">{last.timestamp}</span>
           <span className={colorMap[last.type] || "text-cad-text-secondary"}>
             {last.message}
           </span>
         </div>
       ) : (
-        <span className="text-[11px] text-cad-text-muted font-mono">
-          Ready
-        </span>
+        <span className="text-2xs text-cad-text-dim font-mono">Ready</span>
       )}
+      <div className="ml-auto flex items-center gap-3 text-2xs font-mono text-cad-text-dim">
+        <span title="Wireframe toggle">W</span>
+        <span title="Screenshot">S</span>
+        <span title="Generate">G</span>
+      </div>
     </div>
   );
 }

@@ -8,19 +8,15 @@ export default function GenerateButton() {
   const isGenerating = status === "generating";
 
   return (
-    <button
-      onClick={generate}
-      disabled={isGenerating}
-      className="w-full flex items-center justify-center gap-2 bg-cad-accent hover:bg-cad-accent-hover disabled:opacity-60 disabled:cursor-not-allowed text-white font-medium text-sm py-2.5 rounded transition-colors"
-    >
+    <button onClick={generate} disabled={isGenerating} className="btn-primary w-full">
       {isGenerating ? (
         <>
-          <Loader2 size={16} className="animate-spin" />
-          Generating...
+          <Loader2 size={15} className="animate-spin" />
+          Generating…
         </>
       ) : (
         <>
-          <Zap size={16} />
+          <Zap size={15} />
           Generate Geometry
         </>
       )}
