@@ -13,10 +13,8 @@ export function base64ToUint8Array(base64: string): Uint8Array {
 export function parseBinarySTL(buffer: ArrayBuffer): THREE.BufferGeometry {
   const view = new DataView(buffer);
   const triangleCount = view.getUint32(80, true);
-
   const positions = new Float32Array(triangleCount * 9);
   const normals = new Float32Array(triangleCount * 9);
-
   let offset = 84;
 
   for (let i = 0; i < triangleCount; i++) {
@@ -24,7 +22,6 @@ export function parseBinarySTL(buffer: ArrayBuffer): THREE.BufferGeometry {
     const ny = view.getFloat32(offset + 4, true);
     const nz = view.getFloat32(offset + 8, true);
     offset += 12;
-
     for (let v = 0; v < 3; v++) {
       const idx = i * 9 + v * 3;
       positions[idx] = view.getFloat32(offset, true);
@@ -35,7 +32,6 @@ export function parseBinarySTL(buffer: ArrayBuffer): THREE.BufferGeometry {
       normals[idx + 2] = nz;
       offset += 12;
     }
-
     offset += 2;
   }
 
@@ -44,7 +40,6 @@ export function parseBinarySTL(buffer: ArrayBuffer): THREE.BufferGeometry {
   geometry.setAttribute("normal", new THREE.BufferAttribute(normals, 3));
   geometry.computeBoundingSphere();
   geometry.computeBoundingBox();
-
   return geometry;
 }
 
@@ -57,7 +52,9 @@ function toArrayBuffer(bytes: Uint8Array): ArrayBuffer {
 
 export function base64ToGeometry(base64: string): THREE.BufferGeometry {
   const bytes = base64ToUint8Array(base64);
-  return parseBinarySTL(toArrayBuffer(bytes));
+  const geo = parseBinarySTL(toArrayBuffer(bytes));
+  geo.center();
+  return geo;
 }
 
 export function base64ToBlob(base64: string): Blob {

@@ -1,41 +1,19 @@
 "use client";
 
 import { useRef, useMemo, useEffect, useState, useCallback } from "react";
-import { Canvas, useThree } from "@react-three/fiber";
+import { Canvas, useThree, useFrame } from "@react-three/fiber";
 import { OrbitControls, GizmoHelper, GizmoViewport } from "@react-three/drei";
 import * as THREE from "three";
 import { useDesignStore } from "@/store/designStore";
 import { base64ToGeometry } from "@/lib/stl";
-import { Loader2, Box, Eye, EyeOff, Camera, Maximize2 } from "lucide-react";
+import { Box, Eye, EyeOff, Camera } from "lucide-react";
+import type { OrbitControls as OrbitControlsImpl } from "three-stdlib";
 
-function AutoFitCamera({ geometry }: { geometry: THREE.BufferGeometry | null }) {
-  const { camera } = useThree();
-  useEffect(() => {
-    if (!geometry) return;
-    geometry.computeBoundingBox();
-    const box = geometry.boundingBox;
-    if (!box) return;
-    const center = new THREE.Vector3();
-    box.getCenter(center);
-    const size = new THREE.Vector3();
-    box.getSize(size);
-    const maxDim = Math.max(size.x, size.y, size.z);
-    const dist = maxDim * 1.8;
-    (camera as THREE.PerspectiveCamera).position.set(
-      center.x + dist * 0.6,
-      center.y + dist * 0.4,
-      center.z + dist * 0.6
-    );
-    (camera as THREE.PerspectiveCamera).lookAt(center);
-    (camera as THREE.PerspectiveCamera).near = maxDim * 0.01;
-    (camera as THREE.PerspectiveCamera).far = maxDim * 20;
-    (camera as THREE.PerspectiveCamera).updateProjectionMatrix();
-  }, [geometry, camera]);
-  return null;
-}
-
-function Scene({ wireframe }: { wireframe: boolean }) {
+function SceneContent({ wireframe }: { wireframe: boolean }) {
   const stlBase64 = useDesignStore((s) => s.stlBase64);
+  const { camera } = useThree();
+  const controlsRef = useRef<OrbitControlsImpl>(null);
+
   const geometry = useMemo(() => {
     if (!stlBase64) return null;
     try {
@@ -45,6 +23,33 @@ function Scene({ wireframe }: { wireframe: boolean }) {
     }
   }, [stlBase64]);
 
+  useEffect(() => {
+    if (!geometry) return;
+    geometry.computeBoundingBox();
+    geometry.computeBoundingSphere();
+    const sphere = geometry.boundingSphere;
+    if (!sphere) return;
+
+    const center = sphere.center;
+    const radius = sphere.radius;
+    const dist = radius * 2.5;
+    const cam = camera as THREE.PerspectiveCamera;
+
+    cam.position.set(
+      center.x + dist * 0.7,
+      center.y + dist * 0.5,
+      center.z + dist * 0.7
+    );
+    cam.near = Math.max(0.01, radius * 0.01);
+    cam.far = radius * 100;
+    cam.updateProjectionMatrix();
+
+    if (controlsRef.current) {
+      controlsRef.current.target.copy(center);
+      controlsRef.current.update();
+    }
+  }, [geometry, camera]);
+
   return (
     <>
       <ambientLight intensity={0.4} />
@@ -52,28 +57,27 @@ function Scene({ wireframe }: { wireframe: boolean }) {
       <directionalLight position={[-5, -5, -10]} intensity={0.3} />
       <hemisphereLight args={["#1e293b", "#0a0e15", 0.5]} />
       {geometry && (
-        <>
-          <AutoFitCamera geometry={geometry} />
-          <mesh geometry={geometry}>
-            <meshPhysicalMaterial
-              color="#8b93a8"
-              metalness={0.2}
-              roughness={0.55}
-              wireframe={wireframe} side={THREE.DoubleSide}
-              envMapIntensity={0.5}
-            />
-          </mesh>
-        </>
+        <mesh geometry={geometry}>
+          <meshPhysicalMaterial
+            color="#8b93a8"
+            metalness={0.2}
+            roughness={0.55}
+            wireframe={wireframe}
+            side={THREE.DoubleSide}
+            envMapIntensity={0.5}
+          />
+        </mesh>
       )}
       <gridHelper args={[200, 40, "#1e293b", "#141a26"]} position={[0, -0.01, 0]} />
       <OrbitControls
+        ref={controlsRef}
         enableDamping
         dampingFactor={0.08}
         rotateSpeed={0.8}
         zoomSpeed={1.2}
         panSpeed={0.8}
-        minDistance={1}
-        maxDistance={500}
+        minDistance={0.1}
+        maxDistance={5000}
       />
       <GizmoHelper alignment="bottom-right" margin={[60, 60]}>
         <GizmoViewport axisColors={["#ef4444", "#22c55e", "#3b82f6"]} labelColor="#f1f5f9" />
@@ -94,7 +98,7 @@ function StatusOverlay() {
           <div className="absolute inset-0 w-12 h-12 border-2 border-transparent border-b-cad-secondary/40 rounded-full animate-spin" style={{ animationDirection: "reverse", animationDuration: "1.5s" }} />
         </div>
         <p className="text-sm text-cad-text font-medium mt-4">Generating geometry</p>
-        <p className="text-2xs text-cad-text-dim mt-1 font-mono">Computing implicit fields & marching cubes</p>
+        <p className="text-2xs text-cad-text-dim mt-1 font-mono">Computing implicit fields &amp; marching cubes</p>
       </div>
     );
   }
@@ -134,7 +138,6 @@ function ModelInfo() {
 
   return (
     <>
-      {/* Model Info — Top Left */}
       <div className="absolute top-3 left-3 z-10 pointer-events-none animate-fade-in">
         <div className="hud-overlay px-3.5 py-2.5 space-y-1.5">
           <div className="flex items-center gap-2">
@@ -142,13 +145,14 @@ function ModelInfo() {
             <span className="text-xs font-semibold text-cad-text">{modeName}</span>
           </div>
           <div className="flex items-center gap-3 text-2xs font-mono text-cad-text-muted">
-            <span>{dims[0]}×{dims[1]}×{dims[2]}mm</span>
+            <span>{dims[0]}x{dims[1]}x{dims[2]}mm</span>
             <span className="text-cad-text-dim">|</span>
             <span>{triangles.toLocaleString()} tri</span>
             {fileSize && (
               <>
                 <span className="text-cad-text-dim">|</span>
-                <span>{(fileSize / 1024 / 1024).toFixed(1)}MB</span>           </>
+                <span>{(fileSize / 1024 / 1024).toFixed(1)}MB</span>
+              </>
             )}
           </div>
           {mode === "cem" && cemParams && (
@@ -163,16 +167,13 @@ function ModelInfo() {
         </div>
       </div>
 
-      {/* MFG Score — Top Right */}
       {analysis && (
         <div className="absolute top-3 right-3 z-10 pointer-events-none animate-fade-in">
           <div className="hud-overlay px-3.5 py-2.5">
             <div className="flex items-center gap-2.5">
               <span className="text-2xs font-mono text-cad-text-dim uppercase">MFG</span>
-              <span className={
-                "text-base font-bold font-mono " +
-              (analysis.score >= 7 ? "text-cad-success" : analysis.score >= 5 ? "text-cad-warning" : "text-cad-error")
-              }>
+              <span className={"text-base font-bold font-mono " +
+                (analysis.score >= 7 ? "text-cad-success" : analysis.score >= 5 ? "text-cad-warning" : "text-cad-error")}>
                 {analysis.score}/10
               </span>
             </div>
@@ -187,7 +188,6 @@ function ModelInfo() {
         </div>
       )}
 
-      {/* Engine — Bottom Left */}
       <div className="absolute bottom-3 left-3 z-10 pointer-events-none">
         <span className="text-2xs font-mono text-cad-text-dim/40">{engine}</span>
       </div>
@@ -203,23 +203,15 @@ function ViewToolbar({ wireframe, onToggleWireframe, onScreenshot }: {
 
   return (
     <div className="absolute bottom-3 right-3 z-10 flex gap-1.5 animate-fade-in">
-      <button
-        onClick={onToggleWireframe}
-        title="Toggle wireframe (W)"
-        className={
-          "p-2 rounded-lg border transition-all duration-150 " +
+      <button onClick={onToggleWireframe} title="Toggle wirefra (W)"
+        className={"p-2 rounded-lg border transition-all duration-150 " +
           (wireframe
             ? "bg-cad-accent/20 border-cad-accent/40 text-cad-accent shadow-glow-sm"
-            : "bg-cad-primary/80 backdrop-blur-sm border-cad-border text-cad-text-muted hover:text-cad-text hover:border-cad-border-hover")
-        }
-      >
+            : "bg-cad-primary/80 backdrop-blur-sm border-cad-border text-cad-text-muted hover:text-cad-text hover:border-cad-border-hover")}>
         {wireframe ? <Eye size={14} /> : <EyeOff size={14} />}
       </button>
-      <button
-        onClick={onScreenshot}
-        title="Screenshot (S)"
-        className="p-2 rounded-lg border bg-cad-primary/80 backdrop-blur-sm border-cad-border text-cad-text-muted hover:text-cad-text hover:border-cad-border-hover transition-all duration-150"
-      >
+      <button onClick={onScreenshot} title="Screenshot (S)"
+        className="p-2 rounded-lg border bg-cad-primary/80 backdrop-blur-sm border-cad-border text-cad-text-muted hover:text-cad-text hover:border-cad-border-hover transition-all duration-150">
         <Camera size={14} />
       </button>
     </div>
@@ -228,7 +220,6 @@ function ViewToolbar({ wireframe, onToggleWireframe, onScreenshot }: {
 
 export default function STLViewer() {
   const [wireframe, setWireframe] = useState(false);
-  const canvasRef = useRef<HTMLCanvasElement | null>(null);
   const generate = useDesignStore((s) => s.generate);
   const status = useDesignStore((s) => s.status);
 
@@ -258,13 +249,12 @@ export default function STLViewer() {
       <ModelInfo />
       <ViewToolbar wireframe={wireframe} onToggleWireframe={() => setWireframe((v) => !v)} onScreenshot={handleScreenshot} />
       <Canvas
-        ref={canvasRef}
-        camera={{ position: [60, 40, 60], fov: 45, near: 0.1, far: 10000 }}
+        camera={{ position: [60, 40, 60], fov: 45, near: 0.01, far: 50000 }}
         gl={{ antialias: true, alpha: false, preserveDrawingBuffer: true }}
         onCreated={({ gl }) => { gl.setClearColor("#06080c"); }}
         style={{ width: "100%", height: "100%" }}
       >
-        <Scene wireframe={wireframe} />
+        <SceneContent wireframe={wireframe} />
       </Canvas>
     </div>
   );
