@@ -54,6 +54,7 @@ export function base64ToGeometry(base64: string): THREE.BufferGeometry {
   const bytes = base64ToUint8Array(base64);
   const geo = parseBinarySTL(toArrayBuffer(bytes));
   geo.center();
+  geo.computeVertexNormals();
   return geo;
 }
 
