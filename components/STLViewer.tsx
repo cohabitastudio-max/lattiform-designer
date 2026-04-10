@@ -16,19 +16,12 @@ function STLMesh() {
 
   const geometry = useMemo(() => {
     if (!stlBase64) return null;
-    try {
-      return base64ToGeometry(stlBase64);
-    } catch {
-      return null;
-    }
+    try { return base64ToGeometry(stlBase64); } catch { return null; }
   }, [stlBase64]);
 
   useEffect(() => {
-    if (prevGeometry.current && prevGeometry.current !== geometry) {
-      prevGeometry.current.dispose();
-    }
+    if (prevGeometry.current && prevGeometry.current !== geometry) prevGeometry.current.dispose();
     prevGeometry.current = geometry;
-
     if (!geometry || !meshRef.current) return;
 
     geometry.computeBoundingBox();
@@ -50,24 +43,13 @@ function STLMesh() {
     camera.updateProjectionMatrix();
   }, [geometry, camera]);
 
-  useEffect(() => {
-    return () => {
-      if (prevGeometry.current) {
-        prevGeometry.current.dispose();
-      }
-    };
-  }, []);
+  useEffect(() => { return () => { if (prevGeometry.current) prevGeometry.current.dispose(); }; }, []);
 
   if (!geometry) return null;
 
   return (
     <mesh ref={meshRef} geometry={geometry}>
-      <meshStandardMaterial
-        color="#6366f1"
-        metalness={0.3}
-        roughness={0.6}
-        side={THREE.DoubleSide}
-      />
+      <meshStandardMaterial color="#6366f1" metalness={0.3} roughness={0.6} side={THREE.DoubleSide} />
     </mesh>
   );
 }
@@ -80,18 +62,9 @@ function Scene() {
       <directionalLight position={[-3, -3, -3]} intensity={0.4} />
       <gridHelper args={[200, 40, "#1e293b", "#1e293b"]} />
       <STLMesh />
-      <OrbitControls
-        makeDefault
-        enableDamping
-        dampingFactor={0.05}
-        minDistance={1}
-        maxDistance={500}
-      />
+      <OrbitControls makeDefault enableDamping dampingFactor={0.05} minDistance={1} maxDistance={500} />
       <GizmoHelper alignment="bottom-right" margin={[60, 60]}>
-        <GizmoViewport
-          axisColors={["#ef4444", "#10b981", "#6366f1"]}
-          labelColor="#f1f5f9"
-        />
+        <GizmoViewport axisColors={["#ef4444", "#10b981", "#6366f1"]} labelColor="#f1f5f9" />
       </GizmoHelper>
     </>
   );
@@ -106,9 +79,7 @@ function Overlay() {
       <div className="absolute inset-0 flex items-center justify-center bg-cad-primary/60 z-10 pointer-events-none">
         <div className="flex flex-col items-center gap-3">
           <Loader2 size={32} className="text-cad-accent animate-spin" />
-          <span className="text-sm font-mono text-cad-text-secondary">
-            Generating geometry...
-          </span>
+          <span className="text-sm font-mono text-cad-text-secondary">Generating geometry...</span>
         </div>
       </div>
     );
@@ -119,9 +90,7 @@ function Overlay() {
       <div className="absolute inset-0 flex items-center justify-center z-10 pointer-events-none">
         <div className="flex flex-col items-center gap-3 text-cad-text-muted">
           <Box size={48} strokeWidth={1} />
-          <span className="text-sm font-mono">
-            Configure parameters and generate
-          </span>
+          <span className="text-sm font-mono">Configure parameters and generate</span>
         </div>
       </div>
     );
@@ -130,16 +99,89 @@ function Overlay() {
   return null;
 }
 
+function ModelInfo() {
+  const mode = useDesignStore((s) => s.mode);
+  const status = useDesignStore((s) => s.status);
+  const triangles = useDesignStore((s) => s.triangles);
+  const fileSize = useDesignStore((s) => s.fileSize);
+  const engine = useDesignStore((s) => s.engine);
+  const cemParams = useDesignStore((s) => s.cemParams);
+  const tpmsParams = useDesignStore((s) => s.tpmsParams);
+  const latticeParams = useDesignStore((s) => s.latticeParams);
+  const analysis = useDesignStore((s) => s.manufacturingAnalysis);
+
+  if (status !== "success" || !triangles) return null;
+
+  const modeName = mode === "cem" ? (cemParams?.name || "CEM") : mode === "tpms" ? tpmsParams.surfaceType : latticeParams.unitCell;
+
+  const dims = mode === "cem" && cemParams
+    ? cemParams.envelope
+    : mode === "tpms"
+    ? tpmsParams.boundingBox
+    : latticeParams.boundingBox;
+
+  return (
+    <>
+      <div className="absolute top-3 left-3 z-10 pointer-events-none">
+        <div className="bg-cad-primary/80 backdrop-blur-sm border border-cad-border rounded px-3 py-2 space-y-1">
+          <div className="flex items-center gap-2">
+            <span className="text-[10px] font-mono px-1.5 py-0.5 rounded bg-cad-accent/20 text-cad-accent">
+              {mode.toUpperCase()}
+            </span>
+            <span className="text-xs font-medium text-cad-text">{modeName}</span>
+          </div>
+          <div className="flex items-center gap-3 text-[10px] font-mono text-cad-text-muted">
+            <span>{dims[0]}x{dims[1]}x{dims[2]}mm</span>
+            <span>{triangles.toLocaleString()} tri</span>
+            {fileSize && <span>{(fileSize / 1024 / 1024).toFixed(1)}MB</span>}
+          </div>
+          {mode === "cem" && cemParams && (
+            <div className="flex items-center gap-2 text-[10px] font-mono text-cad-text-muted">
+              <span>{cemParams.fill.type}</span>
+              <span>{cemParams.fill.modulation}</span>
+              {cemParams.regions && <span>{cemParams.regions.length} regions</span>}
+            </div>
+          )}
+        </div>
+      </div>
+
+      {analysis && (
+        <div className="absolute top-3 right-3 z-10 pointer-events-none">
+          <div className="bg-cad-primary/80 backdrop-blur-sm border border-cad-border rounded px-3 py-2">
+            <div className="flex items-center gap-2">
+              <span className="text-[10px] font-mono text-cad-text-muted">MFG Score</span>
+              <span className={"text-sm font-bold font-mono " +
+                (analysis.score >= 7 ? "text-cad-success" : analysis.score >= 5 ? "text-yellow-400" : "text-cad-error")}>
+                {analysis.score}/10
+              </span>
+            </div>
+            <div className="flex items-center gap-2 text-[10px] font-mono text-cad-text-muted mt-0.5">
+              <span>{analysis.material}</span>
+              <span>{analysis.process}</span>
+              <span>{analysis.costRange}</span>
+            </div>
+          </div>
+        </div>
+      )}
+
+      <div className="absolute bottom-3 left-3 z-10 pointer-events-none">
+        <div className="flex items-center gap-2 text-[9px] font-mono text-cad-text-muted/50">
+          <span>{engine}</span>
+        </div>
+      </div>
+    </>
+  );
+}
+
 export default function STLViewer() {
   return (
     <div className="relative flex-1 bg-cad-primary overflow-hidden">
       <Overlay />
+      <ModelInfo />
       <Canvas
         camera={{ position: [60, 40, 60], fov: 45, near: 0.1, far: 10000 }}
         gl={{ antialias: true, alpha: false }}
-        onCreated={({ gl }) => {
-          gl.setClearColor("#0b0f14");
-        }}
+        onCreated={({ gl }) => { gl.setClearColor("#0b0f14"); }}
         style={{ width: "100%", height: "100%" }}
       >
         <Scene />
