@@ -1,9 +1,11 @@
 import { NextRequest } from "next/server";
 import OpenAI from "openai";
 
-const openai = new OpenAI({
-  apiKey: process.env.OPENAI_API_KEY,
-});
+let _openai: OpenAI | null = null;
+function getClient(): OpenAI {
+  if (!_openai) _openai = new OpenAI({ apiKey: process.env.OPENAI_API_KEY });
+  return _openai;
+}
 
 const SYSTEM_PROMPT = [
   "You are a manufacturing engineer specializing in additive manufacturing.",
@@ -69,6 +71,7 @@ export async function POST(req: NextRequest) {
       );
     }
 
+    const openai = getClient();
     const userContent = [
       "Analyze this generated part:",
       "",

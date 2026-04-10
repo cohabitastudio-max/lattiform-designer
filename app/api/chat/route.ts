@@ -1,7 +1,11 @@
 import { NextRequest } from "next/server";
 import OpenAI from "openai";
 
-const openai = new OpenAI({ apiKey: process.env.OPENAI_API_KEY });
+let _openai: OpenAI | null = null;
+function getClient(): OpenAI {
+  if (!_openai) _openai = new OpenAI({ apiKey: process.env.OPENAI_API_KEY });
+  return _openai;
+}
 
 const SYSTEM_PROMPT = [
   "You are a senior computational engineering AI at Lattiform.",
@@ -72,6 +76,7 @@ export async function POST(req: NextRequest) {
     if (!process.env.OPENAI_API_KEY) {
       return new Response(JSON.stringify({ error: "OPENAI_API_KEY not configured" }), { status: 500, headers: { "Content-Type": "application/json" } });
     }
+    const openai = getClient();
     const stream = await openai.chat.completions.create({
       model: "gpt-4o-mini",
       messages: [
