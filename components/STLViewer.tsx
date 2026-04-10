@@ -59,7 +59,7 @@ function Scene({ wireframe }: { wireframe: boolean }) {
               color="#8b93a8"
               metalness={0.2}
               roughness={0.55}
-              wireframe={wireframe}
+              wireframe={wireframe} side={THREE.DoubleSide}
               envMapIntensity={0.5}
             />
           </mesh>
